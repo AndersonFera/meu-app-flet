@@ -1,2 +1,3 @@
 flet
+nest-asyncio
 mysql-connector-python
