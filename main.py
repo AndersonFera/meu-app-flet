@@ -147,4 +147,9 @@ def main(page: ft.Page):
 
 
 if __name__ == "__main__":
-    ft.app(target=main, view=ft.AppView.WEB_BROWSER)
+    import os
+
+    # Captura a porta que o Railway libera para o seu app
+    porta = int(os.environ.get("PORT", 8080))
+    # Inicia o Flet exclusivamente como servidor Web seguro
+    ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=porta, host="0.0.0.0")
