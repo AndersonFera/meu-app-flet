@@ -1,13 +1,14 @@
 import flet as ft
 import requests
 import nest_asyncio
+import os  # <-- Adicione essa linha aqui
 
 # Permitir loops aninhados no ambiente do Colab/Notebook se necessário
 nest_asyncio.apply()
 
 # --- URL da sua API no Railway ---
-# Enquanto testa no PyCharm, mantenha o localhost. Quando subir a API no Railway, mude para o link dela.
-API_URL = "http://127.0.0.1:8000"
+# Ele vai tentar ler a variável do Railway. Se não achar (no seu PC), usa o localhost automaticamente!
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
 
 def main(page: ft.Page):
