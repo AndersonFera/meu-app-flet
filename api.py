@@ -7,7 +7,7 @@ app = FastAPI()
 
 # --- Conexão Direta e Segura com o MySQL do Railway ---
 def conectar_banco():
-    return MySQL.connector.connect(
+    return mysql.connector.connect(
         host=os.environ.get("MYSQLHOST"),
         user=os.environ.get("MYSQLUSER"),
         password=os.environ.get("MYSQLPASSWORD"),
