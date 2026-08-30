@@ -1,8 +1,19 @@
+import os  # 💥 CORREÇÃO 1: Adicionado para o Railway conseguir ler o os.environ
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware  # Para liberar o acesso do Flet
 from pydantic import BaseModel
 import mysql.connector
 
 app = FastAPI()
+
+# 💥 CORREÇÃO 2: Liberar CORS para que seu app Flet web consiga falar com a API sem bloqueios
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # --- Conexão Direta e Segura com o MySQL do Railway ---
@@ -29,16 +40,24 @@ class AgendamentoSchema(BaseModel):
     servico: str
 
 
-# 🟢 1. ROTA DE LOGIN (Espera receber CPF e Data de Nascimento)
+# 🟢 1. ROTA DE LOGIN (Atualizada para aceitar tanto POST quanto parâmetros na URL se o Flet enviar errado)
 @app.post("/validar-paciente")
-def validar_paciente(dados: LoginSchema):
+@app.get("/validar-paciente")  # 💥 CORREÇÃO 3: Aceita requisições GET também para evitar erros no Flet
+def validar_paciente(dados: LoginSchema = None, cpf: str = None, data_nascimento: str = None):
     try:
-        cpf_limpo = "".join(filter(str.isdigit, dados.cpf))
+        # Identifica se os dados vieram pelo corpo (POST) ou pela URL (GET)
+        v_cpf = dados.cpf if dados else cpf
+        v_data = dados.data_nascimento if dados else data_nascimento
+
+        if not v_cpf or not v_data:
+            raise HTTPException(status_code=400, detail="CPF e Data de Nascimento são obrigatórios.")
+
+        cpf_limpo = "".join(filter(str.isdigit, v_cpf))
         conexao = conectar_banco()
         cursor = conexao.cursor(dictionary=True)
 
         query = "SELECT id, nome_completo FROM pacientes_ubs WHERE cpf = %s AND data_nascimento = %s"
-        cursor.execute(query, (cpf_limpo, dados.data_nascimento))
+        cursor.execute(query, (cpf_limpo, v_data))
         paciente = cursor.fetchone()
 
         if not paciente:
@@ -61,7 +80,7 @@ def validar_paciente(dados: LoginSchema):
     except HTTPException as http_err:
         raise http_err
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro no banco local: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro no banco: {e}")
 
 
 # 🟢 2. ROTA DE AGENDAMENTO (Espera receber paciente_id, data_consulta e servico)
