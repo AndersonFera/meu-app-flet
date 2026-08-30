@@ -1,3 +1,6 @@
 flet
-nest-asyncio
+requests
+nest_asyncio
+fastapi
+uvicorn
 mysql-connector-python

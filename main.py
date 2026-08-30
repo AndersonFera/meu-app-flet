@@ -1,43 +1,38 @@
 import flet as ft
-import mysql.connector
+import requests
 import nest_asyncio
-import os # Importar o módulo OS para acessar variáveis de ambiente
 
-# Aplicar nest_asyncio para permitir loops aninhados no Colab
+# Permitir loops aninhados no ambiente do Colab/Notebook se necessário
 nest_asyncio.apply()
 
-# --- Configuração do Banco de Dados ---
-def salvar_no_banco(data, servico):
-    try:
-        # Usar os.environ.get() para pegar as variáveis do ambiente do Railway
-        conexao = mysql.connector.connect(
-            host=os.environ.get("MYSQLHOST"),
-            user=os.environ.get("MYSQLUSER"),
-            password=os.environ.get("MYSQLPASSWORD"),
-            database=os.environ.get("MYSQLDATABASE"),
-            port=os.environ.get("MYSQLPORT") # Adicionado a porta, que é importante
-        )
-        cursor = conexao.cursor()
-        sql = "INSERT INTO agendamentos (data_consulta, servico) VALUES (%s, %s)"
-        cursor.execute(sql, (data, servico))
-        conexao.commit()
-        cursor.close()
-        conexao.close()
-        return True
-    except Exception as e:
-        # A mensagem de erro agora mostrará um erro de autenticação, se houver um problema com as credenciais
-        print(f"Erro: {e}")
-        return False
+# --- URL da sua API no Railway ---
+# Enquanto testa no PyCharm, mantenha o localhost. Quando subir a API no Railway, mude para o link dela.
+API_URL = "http://127.0.0.1:8000"
 
-# --- Interface com Flet ---
+
 def main(page: ft.Page):
-    page.title = "App de Agendamento 2025"
+    page.title = "Sistema de Agendamento UBS"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.window_width = 400
     page.window_height = 600
+    page.vertical_alignment = ft.MainAxisAlignment.CENTER
+    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
 
-    # Campos de entrada
-    input_data = ft.TextField(label="Data (DD/MM/AAAA)", hint_text="Ex: 15/01/2025")
+    # Variável global do app para lembrar quem está logado
+    paciente_id_salvo = None
+
+    # ==========================================
+    # COMPONENTES DA TELA 1: LOGIN
+    # ==========================================
+    input_cpf = ft.TextField(label="Digite seu CPF", max_length=11, keyboard_type=ft.KeyboardType.NUMBER)
+    input_nasc = ft.TextField(label="Data de Nascimento", hint_text="AAAA-MM-DD")
+    status_login = ft.Text()
+
+    # ==========================================
+    # COMPONENTES DA TELA 2: AGENDAMENTO
+    # ==========================================
+    texto_boas_vindas = ft.Text(size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700)
+    input_data_consulta = ft.TextField(label="Data da Consulta (DD/MM/AAAA)", hint_text="Ex: 15/01/2025")
     dropdown_servico = ft.Dropdown(
         label="Escolha o Serviço",
         options=[
@@ -46,33 +41,110 @@ def main(page: ft.Page):
             ft.dropdown.Option("Exame"),
         ],
     )
-    texto_status = ft.Text()
+    status_agendamento = ft.Text()
 
-    def agendar_clique(e):
-        if not input_data.value or not dropdown_servico.value:
-            texto_status.value = "Por favor, preencha todos os campos!"
-            texto_status.color = "red"
-        else:
-            sucesso = salvar_no_banco(input_data.value, dropdown_servico.value)
-            if sucesso:
-                texto_status.value = "Agendamento realizado com sucesso!"
-                texto_status.color = "green"
-                input_data.value = ""
-            else:
-                texto_status.value = "Erro ao conectar com o banco de dados."
-                texto_status.color = "red"
+    # ==========================================
+    # LÓGICA DE TRANSIÇÃO DE TELAS
+    # ==========================================
+    def mostrar_tela_agendamento(nome_paciente):
+        """Limpa a tela de login e desenha a tela de agendamento"""
+        page.clean()
+        texto_boas_vindas.value = f"Olá, {nome_paciente}!"
+        page.add(
+            ft.Icon(ft.Icons.LOCAL_HOSPITAL, color=ft.Colors.BLUE_600, size=40),
+            texto_boas_vindas,
+            ft.Text("Preencha os dados abaixo para agendar:", size=14, color=ft.Colors.GREY_600),
+            ft.Divider(),
+            input_data_consulta,
+            dropdown_servico,
+            ft.ElevatedButton("Confirmar Agendamento", on_click=acao_agendar, width=250),
+            status_agendamento
+        )
         page.update()
 
-    # Layout da página
+    # ==========================================
+    # AÇÕES DOS BOTÕES (COMUNICAÇÃO COM A API)
+    # ==========================================
+    def acao_login(e):
+        nonlocal paciente_id_salvo  # Permite alterar a variável que criamos no início
+
+        if not input_cpf.value or not input_nasc.value:
+            status_login.value = "Por favor, preencha todos os campos!"
+            status_login.color = ft.Colors.RED
+            page.update()
+            return
+
+        payload = {
+            "cpf": input_cpf.value,
+            "data_nascimento": input_nasc.value
+        }
+
+        try:
+            # Envia para a rota de login da API
+            resposta = requests.post(f"{API_URL}/validar-paciente", json=payload)
+
+            if resposta.status_code == 200:
+                dados = resposta.json()
+                # 💾 SALVA O ID DO PACIENTE NA MEMÓRIA DO APP
+                paciente_id_salvo = dados["paciente_id"]
+
+                # Avança para a próxima tela passando o nome do paciente
+                mostrar_tela_agendamento(dados["nome"])
+                page.update()
+            else:
+                erro = resposta.json()
+                status_login.value = erro.get("detail", "Dados incorretos.")
+                status_login.color = ft.Colors.RED
+        except requests.exceptions.ConnectionError:
+            status_login.value = "Erro: Não foi possível conectar ao servidor da API."
+            status_login.color = ft.Colors.ORANGE_800
+        page.update()
+
+    def acao_agendar(e):
+        if not input_data_consulta.value or not dropdown_servico.value:
+            status_agendamento.value = "Preencha a data e o serviço!"
+            status_agendamento.color = ft.Colors.RED
+            page.update()
+            return
+
+        # Prepara os dados incluindo o ID que guardamos no login
+        payload = {
+            "paciente_id": paciente_id_salvo,  # Envia o ID guardado
+            "data_consulta": input_data_consulta.value,
+            "servico": dropdown_servico.value
+        }
+
+        try:
+            # Envia para a rota de agendamento da API
+            resposta = requests.post(f"{API_URL}/agendar", json=payload)
+
+            if resposta.status_code == 200:
+                status_agendamento.value = "Agendamento realizado com sucesso!"
+                status_agendamento.color = ft.Colors.GREEN
+                input_data_consulta.value = ""
+                dropdown_servico.value = None
+            else:
+                status_agendamento.value = "Erro ao registrar o agendamento."
+                status_agendamento.color = ft.Colors.RED
+        except requests.exceptions.ConnectionError:
+            status_agendamento.value = "Erro de conexão com o servidor."
+            status_agendamento.color = ft.Colors.ORANGE_800
+        page.update()
+
+    # ==========================================
+    # INICIALIZAÇÃO DO APP (TELA DE LOGIN)
+    # ==========================================
     page.add(
-        ft.Text("Marcar Consulta", size=25, weight="bold"),
-        input_data,
-        dropdown_servico,
-        ft.ElevatedButton("Confirmar Agendamento", on_click=agendar_clique),
-        texto_status
+        ft.Icon(ft.Icons.LOCK_PERSON, color=ft.Colors.BLUE_600, size=50),
+        ft.Text("Identificação do Paciente", size=22, weight=ft.FontWeight.BOLD),
+        ft.Text("Acesso exclusivo para moradores do bairro", size=12, color=ft.Colors.GREY_600),
+        ft.Divider(),
+        input_cpf,
+        input_nasc,
+        ft.ElevatedButton("Verificar Cadastro", on_click=acao_login, width=250),
+        status_login
     )
 
-# Para rodar como App Desktop/Mobile: ft.app(target=main)
-# Para rodar como Web: ft.app(target=main, view=ft.AppView.WEB_BROWSER)
+
 if __name__ == "__main__":
     ft.app(target=main, view=ft.AppView.WEB_BROWSER)
